@@ -3,9 +3,9 @@ name: ts
 uri: druby://localhost:40000
 notify:
   - address: 224.0.0.1
-    port: 54321
+    port: 40010
   - address: 224.0.0.1
-    port: 54322
+    port: 40011
 filters:
   - [ ~, ~ ]
   - [ ~, ~, ~]
