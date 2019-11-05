@@ -1,11 +1,11 @@
 ---
-name: ts
+name: alice
 uri: druby://localhost:20000
 notify:
   - address: 224.0.0.1
-    port: 20010
+    port: 54321
   - address: 224.0.0.1
-    port: 20011
+    port: 54322
 filters:
   - [ ~, ~ ]
   - [ ~, ~, ~]
@@ -13,5 +13,5 @@ filters:
   - [ ~, ~, ~, ~, ~]
 adapter:
   host: localhost
-  port: 20001
+  port: 8080
   max_clients: 32
