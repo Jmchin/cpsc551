@@ -42,6 +42,9 @@ class TupleSpaceAdapter:
     def _rd(self, tupl):
         return self.ts._rd(self.map_templates_out(tupl), None)
 
+    def _rdall(self, tupl):
+        return self.ts._rdall(self.map_templates_out(tupl))
+
     def _rdp(self, tupl):
         return self.ts._rd(self.map_templates_out(tupl), 0)
 

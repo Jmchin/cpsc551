@@ -96,6 +96,15 @@ server.add_handler('_rd') do |tuple, sec|
   end
 end
 
+server.add_handler('_rdall') do |tuple|
+  begin
+    map_symbols_out(ts.read_all map_templates_in(tuple))
+  rescue Rinda::RequestExpiredError
+    nil
+  end
+end
+
+
 server.add_handler('_out') do |tuple|
     ts.write map_symbols_in(tuple)
     nil
