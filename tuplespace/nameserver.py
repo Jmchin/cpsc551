@@ -24,8 +24,6 @@ import proxy
 
 MAX_UDP_PAYLOAD = 65507
 
-ts = proxy.TupleSpaceAdapter("http://localhost:8001")
-
 def main(address, port):
 
     server_address = ('', int(port))
@@ -42,6 +40,9 @@ def main(address, port):
     print(f'Listening on udp://{address}:{port}')
 
     try:
+
+        ts = proxy.TupleSpaceAdapter("http://localhost:8001")
+
         while True:
             # listen for start events
             data, _ = sock.recvfrom(MAX_UDP_PAYLOAD)
@@ -57,6 +58,10 @@ def main(address, port):
     except Exception as e:
         print(e)
         sock.close()
+
+def usage(program):
+    print(f'Usage: {program} ADDRESS PORT', file=sys.stderr)
+    sys.exit(1)
 
 
 if __name__ == '__main__':
