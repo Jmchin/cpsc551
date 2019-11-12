@@ -51,8 +51,12 @@ def main(address, port):
 
             # write start and adapter events to tuplespace
             if "start"   in notif_lst:
+                # first, remove the existing binding
+                ts._inp((notif_lst[0], "start", str))
+                # second, add the new binding
                 ts._out(notif_lst)
             if "adapter" in notif_lst:
+                ts._inp((notif_lst[0], "adapter", str))
                 ts._out(notif_lst)
 
     except Exception as e:
