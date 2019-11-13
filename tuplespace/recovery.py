@@ -45,14 +45,14 @@ def main(address, port):
                 # begin recovery server
 
                 # BUG: if tuplespace comes online without the
-                # associated adapter event, thenrecovery never occurs
+                # associated adapter event, then recovery never occurs
                 if notification.split()[1] == "adapter":
-
                     with open(".manifest", mode='r') as m:
                         # connect to tuplespace adapter proxy
                         address = notification.split()[2]
                         ts = proxy.TupleSpaceAdapter(address)
 
+                        # read manifest in
                         lines = m.read().splitlines()
                         for line in lines:
                             tupl = line.split()
@@ -62,20 +62,6 @@ def main(address, port):
                                 ts._out(tuple(out))
                             if tupl[1] == "take":
                                 ts._in(tupl[2])
-
-                    # save the current location in the file so we can return
-                    # cur_loc = log_file.tell()
-
-                    # # connect to that adapter
-                    # address = notification[2]
-                    # ts = proxy.TupleSpaceAdapter(address)
-
-                    # # get the current manifest
-                    # log_file.seek(0)
-                    # lines = log_file.readlines()  # chuck adapter http://localhost:8082\n
-                    # lines = [line.replace() for line in lines]  # strip trailing \n
-
-
         except Exception as e:
             print(e)
             sock.close()
