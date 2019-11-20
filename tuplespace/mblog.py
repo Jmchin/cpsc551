@@ -12,7 +12,12 @@ def main(tsName, topic, text):
     myTuple = (tsName, topic, text) = sys.argv[1:]
     # print(myTuple)
 
-    # create connection to nameserver
+    # TODO: Don't connect directly to the nameserver's tuplespace
+    # adapter, instead we want to open up a connection to the
+    # nameserver middleware layer, which will handle all of our
+    # requests
+
+   # create connection to nameserver
     ts = proxy.TupleSpaceAdapter('http://localhost:8001')
 
     if ts._rdp((tsName, "adapter", str)) is not None:
@@ -26,36 +31,9 @@ def main(tsName, topic, text):
     else:
         print(f'{tsName} does not exist.')
 
+
+# TODO: Clean this up!
 if __name__ == '__main__':
     if len(sys.argv) < 3:
         print("bad argument")
     sys.exit(main(*sys.argv[1:]))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# PORT = 20000
-#
-# with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-#     s.bind(('', PORT))
-#     s.listen()
-#     conn, addr = s.accept()
-#     with conn:
-#         print('Connected by', addr)
-#         while True:
-#             data = conn.recv(1024)
-#             if not data:
-#                 break
-#             conn.sendall(data)
