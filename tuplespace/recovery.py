@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import json
 import sys
 import struct
 import socket
@@ -37,6 +38,12 @@ def main(address, port):
                 # print out all received UDP packets to the console
                 data, _ = sock.recvfrom(MAX_UDP_PAYLOAD)
                 notification = data.decode()
+
+                # process the incoming notification
+                notification = notification.replace(" ", ",", 2) # comma separate our three fields
+                to_file = eval(notification)
+                json.dump(to_file, log_file)
+
                 print(notification)
 
                 # TODO: Should we serialize this using JSON instead of a raw string?
@@ -55,9 +62,6 @@ def main(address, port):
                 # json.dumps(msg) upon receipt and then
                 # json.loads(msg) for each line in the manifest when
                 # replaying events
-
-                log_file.write(f'{notification}\n')
-                log_file.flush()  # flush buffer to the file
 
                 # Recovery:
                 #
