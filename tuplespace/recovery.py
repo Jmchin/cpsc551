@@ -39,6 +39,23 @@ def main(address, port):
                 notification = data.decode()
                 print(notification)
 
+                # TODO: Should we serialize this using JSON instead of a raw string?
+                #
+                # Right now we have a problem: Because we are writing
+                # the received notification out as a string, we add an
+                # additional burden on the server when we need to
+                # deserialize the contents of a message to replay it
+                # to a tuplespace. We lost all type information when
+                # writing the event out as a string, so perhaps we
+                # should use a different serialization format to
+                # remove some of the parsing burden
+
+                # Preliminary tests suggest that JSON is an adequate
+                # serialization format for this purpose. We will
+                # json.dumps(msg) upon receipt and then
+                # json.loads(msg) for each line in the manifest when
+                # replaying events
+
                 log_file.write(f'{notification}\n')
                 log_file.flush()  # flush buffer to the file
 
@@ -100,6 +117,21 @@ def main(address, port):
                             if tupl[1] == "write":
                                 # TODO: parse msg portion back into a
                                 # typed tuple
+
+                                # Problems: Right now, the logging
+                                # server will write the events it
+                                # receives to file as a string. We
+                                # need a good way to break the event
+                                # into its three logical components
+                                # (tuplespace-name, event, message)
+
+                                # We cannot simply split on
+                                # whitespace, because the message
+                                # itself may contain whitespace.
+
+                                # May be able to get around this
+                                # problem by only splitting up to a
+                                # '[' delimiter
                                 out = tupl[2][1:-2]
                                 out = out.split()
                                 ts._out(tuple(out))
