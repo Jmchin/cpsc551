@@ -42,21 +42,64 @@ def main(address, port):
                 log_file.write(f'{notification}\n')
                 log_file.flush()  # flush buffer to the file
 
-                # begin recovery server
+                # Recovery:
+                #
+                # The recovery feature should listen for an incoming
+                # *adapter* event on the multicast group, attach to
+                # the adapter located at *address*, and then replay
+                # all *takes* and *writes* in the order they were
+                # logged to the joining adapter/tuplespace pair.
 
-                # BUG: if tuplespace comes online without the
-                # associated adapter event, then recovery never occurs
-                if notification.split()[1] == "adapter":
+                # Potential Issues:
+                #
+                # Right now we are only looking for the *adapter*
+                # event, and are assuming that each adapter event is
+                # associated with a paired tuplespace *start* event.
+                # Obviously, if the associated tuplespace for the
+                # adapter is not actually online, all tuplespace
+                # operations will fail when trying to replay to the
+                # server. Additional logic is needed here to handle
+                # all the variable edge cases.
+
+                # Because the recovery server is running on a single
+                # thread of control, we will be unable to respond to
+                # (i.e log) any multicast events while we are
+                # recovering a tuplespace. Potential issues are to
+                # create a queue for incoming requests to await
+                # processing, or to spin off a separate thread for
+                # each tuplespace that requires recovery.
+
+                notif_tokens = notification.split()
+
+                # TODO: Could probably spin up a new thread of control
+                # so that the server can continue to log incoming
+                # multicast events, and to replay events to multiple
+                # joining servers to help alleviate the race condition
+                if notif_tokens[1] == "adapter":
+                    # TODO: This can probably be written better, but I
+                    # didn't want to manually seek through the
+                    # existing file object
                     with open(".manifest", mode='r') as m:
-                        # connect to tuplespace adapter proxy
-                        address = notification.split()[2]
+                        address = notif_tokens[2]
+
+                        # connect to newly joined adapter
                         ts = proxy.TupleSpaceAdapter(address)
 
                         # read manifest in
                         lines = m.read().splitlines()
+
+                        # filter out all nameserv references
+                        lines = [l for l in lines if "nameserv" not in l]
+
+                        # filter for all the writes and takes
+                        lines = [l for l in filter(lambda li: "write" in li or "take" in li)]
+
+                        # replay the events to the tuplespace
                         for line in lines:
                             tupl = line.split()
                             if tupl[1] == "write":
+                                # TODO: parse msg portion back into a
+                                # typed tuple
                                 out = tupl[2][1:-2]
                                 out = out.split()
                                 ts._out(tuple(out))
