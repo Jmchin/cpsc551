@@ -12,7 +12,14 @@ MAX_UDP_PAYLOAD = 65507
 
 
 def main(address, port):
-    # See <https://pymotw.com/3/socket/multicast.html> for details
+    def notification_to_json(n):
+        """ converts an incoming notification to json"""
+        d = { "name": notification[0],
+              "event": notification[1],
+              "message": notification[2]
+        }
+
+        return json.dumps(d)
 
     # localhost:port
     server_address = ('', int(port))
@@ -41,10 +48,14 @@ def main(address, port):
 
                 # process the incoming notification
                 notification = notification.replace(" ", ",", 2) # comma separate our three fields
-                to_file = eval(notification)
-                json.dump(to_file, log_file)
-
+                notification = notification.split(",", 2)
                 print(notification)
+
+
+                log_file.write(notification_to_json(notification))
+                log_file.write('\n')
+                log_file.flush()
+
 
                 # TODO: Should we serialize this using JSON instead of a raw string?
                 #
@@ -90,58 +101,34 @@ def main(address, port):
                 # processing, or to spin off a separate thread for
                 # each tuplespace that requires recovery.
 
-                notif_tokens = notification.split()
-
                 # TODO: Could probably spin up a new thread of control
                 # so that the server can continue to log incoming
                 # multicast events, and to replay events to multiple
                 # joining servers to help alleviate the race condition
-                if notif_tokens[1] == "adapter":
+                if notification[1] == "adapter":
                     # TODO: This can probably be written better, but I
                     # didn't want to manually seek through the
                     # existing file object
                     with open(".manifest", mode='r') as m:
-                        address = notif_tokens[2]
+                        address = notification[2]
 
                         # connect to newly joined adapter
                         ts = proxy.TupleSpaceAdapter(address)
 
-                        # read manifest in
                         lines = m.read().splitlines()
 
-                        # filter out all nameserv references
-                        lines = [l for l in lines if "nameserv" not in l]
+                        # read each line as json
+                        lines = [json.loads(l) for l in lines]
+
+                        # filter out nameserver
+                        lines = [l for l in lines if l['name'] is not "nameserv"]
 
                         # filter for all the writes and takes
-                        lines = [l for l in filter(lambda li: "write" in li or "take" in li)]
-
-                        # replay the events to the tuplespace
-                        for line in lines:
-                            tupl = line.split()
-                            if tupl[1] == "write":
-                                # TODO: parse msg portion back into a
-                                # typed tuple
-
-                                # Problems: Right now, the logging
-                                # server will write the events it
-                                # receives to file as a string. We
-                                # need a good way to break the event
-                                # into its three logical components
-                                # (tuplespace-name, event, message)
-
-                                # We cannot simply split on
-                                # whitespace, because the message
-                                # itself may contain whitespace.
-
-                                # May be able to get around this
-                                # problem by only splitting up to a
-                                # '[' delimiter
-                                out = tupl[2][1:-2]
-                                out = out.split()
-                                ts._out(tuple(out))
-                            if tupl[1] == "take":
-                                ts._in(tupl[2])
-        except Exception as e:
+                        lines = [l for l in filter(lambda li: "write"
+                                                   in li['event'] or "take" in
+                                                   li['event'], lines)]
+                        print(f'filtered: {lines}')
+       except Exception as e:
             print(e)
             sock.close()
 
