@@ -8,20 +8,17 @@ import socket
 import proxy
 
 #
-# Right now we have a problem: Because we are writing
-# the received notification out as a string, we add an
-# additional burden on the server when we need to
-# deserialize the contents of a message to replay it
-# to a tuplespace. We lost all type information when
-# writing the event out as a string, so perhaps we
-# should use a different serialization format to
-# remove some of the parsing burden
+# Right now we have a problem: Because we are writing the received
+# notification out as a string, we add an additional burden on the
+# server when we need to deserialize the contents of a message to
+# replay it to a tuplespace. We lost all type information when writing
+# the event out as a string, so perhaps we should use a different
+# serialization format to remove some of the parsing burden
 
-# Preliminary tests suggest that JSON is an adequate
-# serialization format for this purpose. We will
-# json.dumps(msg) upon receipt and then
-# json.loads(msg) for each line in the manifest when
-# replaying events
+# Preliminary tests suggest that JSON is an adequate serialization
+# format for this purpose. We will json.dumps(msg) upon receipt and
+# then json.loads(msg) for each line in the manifest when replaying
+# events
 
 # Recovery:
 #
@@ -33,22 +30,26 @@ import proxy
 
 # Potential Issues:
 #
-# Right now we are only looking for the *adapter*
-# event, and are assuming that each adapter event is
-# associated with a paired tuplespace *start* event.
-# Obviously, if the associated tuplespace for the
-# adapter is not actually online, all tuplespace
-# operations will fail when trying to replay to the
-# server. Additional logic is needed here to handle
-# all the variable edge cases.
+# Right now we are only looking for the *adapter* event, and are
+# assuming that each adapter event is associated with a paired
+# tuplespace *start* event. Obviously, if the associated tuplespace
+# for the adapter is not actually online, all tuplespace operations
+# will fail when trying to replay to the server. Additional logic is
+# needed here to handle all the variable edge cases.
 
-# Because the recovery server is running on a single
-# thread of control, we will be unable to respond to
-# (i.e log) any multicast events while we are
-# recovering a tuplespace. Potential issues are to
-# create a queue for incoming requests to await
-# processing, or to spin off a separate thread for
-# each tuplespace that requires recovery.
+# Because the recovery server is running on a single thread of
+# control, we will be unable to respond to (i.e log) any multicast
+# events while we are recovering a tuplespace. Potential issues are to
+# create a queue for incoming requests to await processing, or to spin
+# off a separate thread for each tuplespace that requires recovery.
+
+# Another issue that this design contains is that recovery only works
+# a single time. Without any additional logic, the tuplespace that is
+# recovered will also multicast its write and take events, which will
+# consequently be logged in the manifest file. Potential avenues of
+# approach for this are to introduce a lock, where the manifest file
+# becomes a lockable resource, to prevent us reading and writing
+# simultaneuously.
 
 # TODO: Could probably spin up a new thread of control
 # so that the server can continue to log incoming
@@ -62,7 +63,7 @@ MAX_UDP_PAYLOAD = 65507
 def main(address, port):
 
     def replay_history(address):
-        """ Replays microblog history to the adapter named by address """
+        """Replays microblog history to the adapter referenced by address"""
         ts = proxy.TupleSpaceAdapter(address)
 
         with open(".manifest", mode='r') as m:
@@ -72,8 +73,8 @@ def main(address, port):
             lines = m.read().splitlines()
             # read each line as json
             lines = [json.loads(l) for l in lines]
-            # filter out nameserver
-            lines = [l for l in lines if l['name'] is not "nameserv"]
+            # filter out nameserver events
+            lines = [l for l in lines if l['name'] != "nameserv"]
             # filter for all the writes and takes
             lines = [l for l in filter(lambda li: "write"
                                         in li['event'] or "take" in
@@ -94,6 +95,7 @@ def main(address, port):
 
 
     def notif_to_dict(notification):
+        """converts a notification decoded from the network into a dictionary"""
         notification = notification.replace(" ", ",", 2) # comma separate our three fields
         notification = notification.split(",", 2)
 
@@ -135,9 +137,11 @@ def main(address, port):
                 log_file.write(json.dumps(notif_dict))
                 log_file.write('\n')
                 log_file.flush()
-                # recover the adapter's tuplespace
+
+                # Problem: How can we prevent the events we receive
+                # from this recovery from being added to the log?
                 if notif_dict['event'] == "adapter":
-                    replay_history(notif_dict['message'])
+                    replay_history(notif_dict['message']) # recover the adapter's tuplespace
         except Exception as e:
             print(e)
             sock.close()
