@@ -16,7 +16,6 @@ adapter_host = config['adapter']['host']
 adapter_port = config['adapter']['port']
 
 adapter_uri = f'http://{adapter_host}:{adapter_port}'
-
 ts = proxy.TupleSpaceAdapter(adapter_uri)
 
 print(f'Connected to tuplespace {ts_name} on {adapter_uri}')
@@ -25,7 +24,7 @@ print(f'Connected to tuplespace {ts_name} on {adapter_uri}')
 
 def main(address, port):
     # See <https://pymotw.com/3/socket/multicast.html> for details
-
+    print("Here is my port:", int(port))
     server_address = ('', int(port))
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -41,8 +40,26 @@ def main(address, port):
         while True:
             data, _ = sock.recvfrom(MAX_UDP_PAYLOAD)
             notification = data.decode()
-            print(notification)
-    except:
+            user, event, text = notification.split(" ", 2)
+            notificationList = [user, event, text]
+
+            #BIG PROBLEM: Endless writting of the tuplespace
+            # write out to other tuplespaces
+            # print(f'This is a(n) {event} event!')
+            if event == 'adapter' or event == 'start':
+                # TODO: either 'adapter' or 'start' was received and replication needs to be performed
+                pass
+            elif event.strip() == 'write':
+                listToWrite = tuple(eval(notificationList[2]))
+                ts._out(listToWrite)
+            elif event.strip() == 'take':
+                listToTake = tuple(eval(notificationList[2]))
+                ts._in(listToTake)
+            else:
+                pass
+
+    except Exception as e:
+        print(e)
         sock.close()
 
 
@@ -52,7 +69,5 @@ def usage(program):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3:
-        usage(sys.argv[0])
-
-    sys.exit(main(*sys.argv[1:]))
+    print(*sys.argv[1:3])
+    sys.exit(main(sys.argv[1], sys.argv[2]))
