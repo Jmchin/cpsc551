@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+import json
 import sys
 import struct
 import socket
@@ -7,6 +7,46 @@ import socket
 import proxy
 import config
 
+def notif_to_dict(notification):
+    """converts a notification decoded from the network into a dictionary"""
+    notification = notification.replace(" ", ",", 2) # comma separate our three fields
+    notification = notification.split(",", 2)
+
+    return { "name": notification[0],
+             "event": notification[1],
+             "message": notification[2]
+    }
+
+def replay_history(address):
+    """Replays microblog history to the adapter referenced by address"""
+    ts = proxy.TupleSpaceAdapter(address)
+
+    with open(f'.replicationLog-{ts_name}', mode='r') as m:
+        # connect to newly joined adapter
+        ts = proxy.TupleSpaceAdapter(address)
+        # read file in as list of strings
+        lines = m.read().splitlines()
+        # read each line as json
+        lines = [json.loads(l) for l in lines]
+        # filter out nameserver events
+        lines = [l for l in lines if l['name'] != "nameserv"]
+        # filter for all the writes and takes
+        lines = [l for l in filter(lambda li: "write"
+                                    in li['event'] or "take" in
+                                    li['event'], lines)]
+        for line in lines:
+            print(f'recovery: {line}')
+            if line['event'] == 'write':
+                print(f'replaying {line["message"]} to {ts}')
+                # NOTE: eval is very fragile, is there a better
+                # way to do this?
+                ts._out(eval(line['message']))
+            elif line['event'] == 'take':
+                print(f'replaying {line["message"]} to {ts}')
+                _ = ts._inp(eval(line['message']))  # we don't care about the return value
+            else:
+                print("Something went wrong!")
+                return
 # per <https://en.wikipedia.org/wiki/User_Datagram_Protocol>
 MAX_UDP_PAYLOAD = 65507
 config = config.read_config()
@@ -24,7 +64,6 @@ print(f'Connected to tuplespace {ts_name} on {adapter_uri}')
 
 def main(address, port):
     # See <https://pymotw.com/3/socket/multicast.html> for details
-    print("Here is my port:", int(port))
     server_address = ('', int(port))
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -35,32 +74,37 @@ def main(address, port):
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
 
     print(f"Listening on udp://{address}:{port}")
+    with open(f'.replicationLog-{ts_name}', "w+") as log_file:
+        try:
+            while True:
+                data, _ = sock.recvfrom(MAX_UDP_PAYLOAD)
+                notification = data.decode()
+                notif_dict = notif_to_dict(notification)
 
-    try:
-        while True:
-            data, _ = sock.recvfrom(MAX_UDP_PAYLOAD)
-            notification = data.decode()
-            user, event, text = notification.split(" ", 2)
-            notificationList = [user, event, text]
+                print(notif_dict)
+                # log json to file
+                log_file.write(json.dumps(notif_dict))
+                log_file.write('\n')
+                log_file.flush()
 
-            #BIG PROBLEM: Endless writting of the tuplespace
-            # write out to other tuplespaces
-            # print(f'This is a(n) {event} event!')
-            if event == 'adapter' or event == 'start':
-                # TODO: either 'adapter' or 'start' was received and replication needs to be performed
-                pass
-            elif event.strip() == 'write':
-                listToWrite = tuple(eval(notificationList[2]))
-                ts._out(listToWrite)
-            elif event.strip() == 'take':
-                listToTake = tuple(eval(notificationList[2]))
-                ts._in(listToTake)
-            else:
-                pass
+                # Problem: How can we prevent the events we receive
+                # from this recovery from being added to the log?
 
-    except Exception as e:
-        print(e)
-        sock.close()
+                if notif_dict['event'] == 'adapter':
+                    # TODO: either 'adapter' or 'start' was received and replication needs to be performed
+                    # 1. Attach to tuplespace of newly joined user. (i.e. extract address from notification)
+                    replay_history(notif_dict['message'])
+                elif notif_dict['event'] == 'write':
+                    listToWrite = tuple(eval(notif_dict['message']))
+                    ts._out(listToWrite)
+                elif notif_dict['event'] == 'take':
+                    listToTake = tuple(eval(notif_dict['message']))
+                    ts._in(listToTake)
+                else:
+                    pass
+        except Exception as e:
+            print(e)
+            sock.close()
 
 
 def usage(program):
