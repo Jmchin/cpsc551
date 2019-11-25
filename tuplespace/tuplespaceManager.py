@@ -114,6 +114,10 @@ def usage(program):
     sys.exit(1)
 
 
+
+# TODO: Refactor this to better use argparse, will probably need to
+# backpatch this fix to all other files that use argparse
 if __name__ == '__main__':
     print(*sys.argv[1:3])
+    # user must have specified a multicast group address and a port to receive on
     sys.exit(main(sys.argv[1], sys.argv[2]))
