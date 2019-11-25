@@ -79,6 +79,24 @@ def main(address, port):
             lines = [l for l in filter(lambda li: "write"
                                         in li['event'] or "take" in
                                         li['event'], lines)]
+
+            # PROBLEM: Because we are not currently able to filter out
+            # repeated events from operations replicated to other
+            # tuplespaces, any node must be recovered, will receive N
+            # copies of all tuples written to the log so far, where N
+            # is the number of nodes online before the node was
+            # recovered
+
+            # Potential solution: If we had a way to imbue each
+            # message being written with a unique identifier, such
+            # that each copy of the message in all tuplespaces share
+            # the identifier, we can allow the first one to be the
+            # source of truth, allowing us to keep a running set of
+            # uuid we have seen so far, and not allow messages with
+            # uuid's we have already seen to play. That is, we want to
+            # ensure that each discrete tuplespace operation is played
+            # exactly once.
+
             for line in lines:
                 print(f'recovery: {line}')
                 if line['event'] == 'write':
