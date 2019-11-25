@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
+
 import json
-import sys
-import struct
 import socket
-# import code
+import struct
+import sys
+
 import proxy
 import config
 
@@ -47,6 +48,7 @@ def replay_history(address):
             else:
                 print("Something went wrong!")
                 return
+
 # per <https://en.wikipedia.org/wiki/User_Datagram_Protocol>
 MAX_UDP_PAYLOAD = 65507
 config = config.read_config()

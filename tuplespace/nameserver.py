@@ -72,13 +72,16 @@ def main(address, port):
             notification = data.decode()
             notif_dict = notif_to_dict(notification)
 
+
             if notif_dict["event"] == "start":
+                print(f'nameserver: {notif_dict}')
                 # first, remove the existing binding
                 ts._inp((notif_dict["name"], "start", str))
                 # second, add the new binding
                 ts._out((notif_dict["name"], "start", notif_dict["message"]))
 
             if notif_dict["event"] == "adapter":
+                print(f'nameserver: {notif_dict}')
                 # get the users tuples
                 users = ts._inp(("users", None))
                 # create the users dict if it does not exist

@@ -1,6 +1,6 @@
 ---
-name: bob
-uri: druby://localhost:30000
+name: dave
+uri: druby://localhost:50000
 notify:
   - address: 224.0.0.1
     port: 54321
@@ -17,5 +17,5 @@ filters:
   - [ ~, ~, ~, ~, ~]
 adapter:
   host: localhost
-  port: 8081
+  port: 8083
   max_clients: 32
