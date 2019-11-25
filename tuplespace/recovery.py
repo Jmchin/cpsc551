@@ -7,19 +7,6 @@ import socket
 
 import proxy
 
-#
-# Right now we have a problem: Because we are writing the received
-# notification out as a string, we add an additional burden on the
-# server when we need to deserialize the contents of a message to
-# replay it to a tuplespace. We lost all type information when writing
-# the event out as a string, so perhaps we should use a different
-# serialization format to remove some of the parsing burden
-
-# Preliminary tests suggest that JSON is an adequate serialization
-# format for this purpose. We will json.dumps(msg) upon receipt and
-# then json.loads(msg) for each line in the manifest when replaying
-# events
-
 # Recovery:
 #
 # The recovery feature should listen for an incoming
@@ -50,11 +37,6 @@ import proxy
 # approach for this are to introduce a lock, where the manifest file
 # becomes a lockable resource, to prevent us reading and writing
 # simultaneuously.
-
-# TODO: Could probably spin up a new thread of control
-# so that the server can continue to log incoming
-# multicast events, and to replay events to multiple
-# joining servers to help alleviate the race condition
 
 # per <https://en.wikipedia.org/wiki/User_Datagram_Protocol>
 MAX_UDP_PAYLOAD = 65507
