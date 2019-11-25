@@ -19,7 +19,7 @@ def main(tsName, topic, text):
     # nameserver middleware layer, which will handle all of our
     # requests
 
-   # create connection to nameserver
+    # create connection to nameserver
     ts = proxy.TupleSpaceAdapter('http://localhost:8001')
 
     # quickly check if the nameserver has seen tsName yet
