@@ -143,7 +143,6 @@
       timeout timer to some random value for each of the nodes, and
       hold a new election.
 
-
 *** when a leader fails
     The leader is the main source of truth for the application
     cluster, and will maintain a log of events that need to be
@@ -201,7 +200,6 @@
     the same sequence of commands, then they will produce the same
     output.
 
-
 ** Rules for servers
 
 *** all servers
@@ -210,12 +208,10 @@
     - If RPC request/response contains term T > self.current_term, set
       self.current_term to T, set state to Follower
 
-
 *** followers
     - respond to RPCs from candidates and leaders
     - if timeout expired without AppendEntries RPC from current
       leader, or granting vote to candidate, set state to Candidate
-
 
 *** candidates
     - Upon becoming a candidate, start an election
@@ -226,7 +222,6 @@
     - If received AppendEntries RPC from new leader, set state to Follower
     - If election timeout, start new election
 
-
 *** leaders
     - Upon becoming leader, send initial empty AppendEntries RPC to
       notify all servers in cluster that you are the new leader
@@ -235,7 +230,6 @@
       replicate to other servers in cluster
       - once majority have replicated, commit the entry, apply to the
         state machine, return result to client
-
 
 * ZMQ
 
@@ -271,7 +265,6 @@
           socket at endpoint
    4. transmit data via =zmq_msg_send(), zmq_msg_recv()=
 
-
 ** publish-subscribe
    publisher sockets are connected to subscriber sockets in a one to
    many relationship
@@ -306,3 +299,33 @@
   joining peer (i.e tuplespace/adapter/manager) because we had no
   coordination and consensus among the nodes in the microblog
   platform.
+
+* Implementation
+  After having read through the Raft Consensus Algorithm introduced by
+  Ongaro and Ousterhout, we have decided to use it as the foundation
+  for our microblogging platform. As before, the underlying model is
+  left unchanged. That is, clients should be able to transparently
+  connect to any of the servers in the microblog platform and have
+  their operations replicated to every other server in the cluster.
+  The server cluster should be fault tolerant, and if the Raft
+  Consensus Algorithm is implemented properly, the cluster should be
+  able to tolerate (N // 2) - 1 failures. That is, if there are 5
+  servers in a cluster, up to 2 may fail at any given time.
+
+  Servers in the cluster can take on one of three states:
+
+  1. Follower
+  2. Candidate
+  3. Leader
+
+
+  In the normal course of operation, servers in the cluster are
+  arranged in a master-slave relationship, wherein all log entries
+  flow from the leader to the other servers. To be clear, clients will
+  connect transparently to one of the servers in the cluster, and
+  those servers will forward operations to the Leader/Master server.
+  The Leader server will then append the Entry to its Log, and will
+  replicate the entry to other servers in the cluster via RPC. Once a
+  majority of servers have appended the entry to their own logs, the
+  leader server will mark the entry as committed, apply its operation
+  to the StateMachine, and returns the result to the calling client.
