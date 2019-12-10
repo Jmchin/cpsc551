@@ -23,6 +23,18 @@
         - once a majority of subscribers have received the message,
           the leader will commit the event to its log
 
+  - we will use *active replication*, an approach for replicating data
+    across a group by assuming that each node in the group is an
+    active process that is capable of actively keeping its data store
+    up to date
+    - instead of passing along notifications to invalidate data, or
+      transferring the contents of the changed data, we are instead
+      going to send operation updates, with the parameters necessary
+      for any active node to replicate the state independently
+  - we will use a push-based replication approach, where a strong
+    leader server will push all updates to the system to the rest of
+    the followers in the cluster
+
 
   If I can implement a self-sustaining leader election algorithm, then
   I can always have some node designated as the coordinator of the
@@ -88,14 +100,15 @@
 
    All nodes are initially in the follower state. If a node doesn't
    receive a response from any designated leader node, then that node
-   becomes a *candidate*. At the beginning of the system's life, all
-   nodes will become candidates before electing a single node to
-   coordinate the replicated logs.
+   becomes a *candidate*. At the beginning of the system's life, the
+   first node to timeout will become candidate, requesting votes from
+   the other nodes in the cluster.
 
    Once a node shifts into the candidate state, then it requests votes
    from all other nodes that it knows about. Each node replies with a
-   vote, and the candidate with the majority of nodes votes becomes
-   the leader.
+   vote and once a candidate has a majority of votes, it immediately
+   becomes the Leader node and begins its heartbeat, a periodic empty
+   AppendEntries RPC to every Follower.
 
    After a leader has been elected, we can route all system changes
    through it. Each change is added to the leader's log as an entry.
@@ -201,7 +214,6 @@
     the same sequence of commands, then they will produce the same
     output.
 
-
 ** Rules for servers
 
 *** all servers
@@ -210,12 +222,10 @@
     - If RPC request/response contains term T > self.current_term, set
       self.current_term to T, set state to Follower
 
-
 *** followers
     - respond to RPCs from candidates and leaders
     - if timeout expired without AppendEntries RPC from current
       leader, or granting vote to candidate, set state to Candidate
-
 
 *** candidates
     - Upon becoming a candidate, start an election
@@ -226,7 +236,6 @@
     - If received AppendEntries RPC from new leader, set state to Follower
     - If election timeout, start new election
 
-
 *** leaders
     - Upon becoming leader, send initial empty AppendEntries RPC to
       notify all servers in cluster that you are the new leader
@@ -235,7 +244,6 @@
       replicate to other servers in cluster
       - once majority have replicated, commit the entry, apply to the
         state machine, return result to client
-
 
 * ZMQ
 
@@ -270,7 +278,6 @@
         - "connect a socket to an endpoint" -- attempt to connect to
           socket at endpoint
    4. transmit data via =zmq_msg_send(), zmq_msg_recv()=
-
 
 ** publish-subscribe
    publisher sockets are connected to subscriber sockets in a one to
