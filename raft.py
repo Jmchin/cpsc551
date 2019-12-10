@@ -2,6 +2,37 @@
 
 # the beginning of a python implementation of the Raft Consensus Algorithm
 
+# Each server in our cluster, which needs to maintain a replicated
+# state machine consistent between them
+
+# Need to connect each of these Raft servers to a
+# tuplespace/adapter pair. The tuplespace will be our replicated
+# state machine that we will maintain consistently between however
+# many servers are in our cluster
+
+# Need to maintain a log of Entries. Entries are operations that
+# need to be sequenced by the Leader server, and can be marked as
+# committed or not. Once a majority of servers have received the
+# event to be committed, the leader commits the operation to the
+# log, at a specified index, applies the operation to its state
+# machine, and returns the results to the calling client
+
+# Clients need to connect to the Servers in our Raft cluster
+# transparently. The client should not need to know about the
+# underlying structure of the Raft cluster (i.e Leader and
+# Followers). A client connects to one of the servers in the
+# cluster and requests a system change. The server, if a follower,
+# will forward the request directly to the leader server for the
+# current term.
+
+# Each server needs to keep track of its current term, initialized
+# to 0, increasing monotonically with each new election
+
+# Each server needs to know how many other servers are in the
+# cluster to calculate the majority threshold, for determining
+# elections and for the distributed commit
+
+# ----------------------------------------------------------------------
 
 # Raft Consensus:
 
@@ -9,12 +40,6 @@
 # original authors, Ongaro and Ousterhout have developed the Raft
 # algorithm, breaking the consensus problem into 3 mostly independent
 # subproblems. We are going to implement Raft by using this architecture.
-
-# NOTES
-# ----------------------------------------------------------------------
-
-# Each server in our cluster, which needs to maintain a replicated
-# state machine consistent between them
 
 # Need to connect each of these Raft servers to a
 # tuplespace/adapter pair. The tuplespace will be our replicated
@@ -171,10 +196,7 @@ class Server:
         self.next_idx = []   # for each server, index of next log entry to send
         self.match_idx = []  # for each server, index of highest entry
                              # known to be replicated
-
         self.timeout_thread = None
-
-
 
     # TIMEOUT
     # ----------------------------------------------------------------------
@@ -183,7 +205,6 @@ class Server:
 
         """
         self.election_time = time.time() + random_timeout()
-
 
     def init_timeout(self):
          """ Initialize a thread for handling election timeouts
