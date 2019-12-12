@@ -1,326 +1,233 @@
-# raft.py
-
-# the beginning of a python implementation of the Raft Consensus Algorithm
-
-# Each server in our cluster, which needs to maintain a replicated
-# state machine consistent between them
-
-# Need to connect each of these Raft servers to a
-# tuplespace/adapter pair. The tuplespace will be our replicated
-# state machine that we will maintain consistently between however
-# many servers are in our cluster
-
-# Need to maintain a log of Entries. Entries are operations that
-# need to be sequenced by the Leader server, and can be marked as
-# committed or not. Once a majority of servers have received the
-# event to be committed, the leader commits the operation to the
-# log, at a specified index, applies the operation to its state
-# machine, and returns the results to the calling client
-
-# Clients need to connect to the Servers in our Raft cluster
-# transparently. The client should not need to know about the
-# underlying structure of the Raft cluster (i.e Leader and
-# Followers). A client connects to one of the servers in the
-# cluster and requests a system change. The server, if a follower,
-# will forward the request directly to the leader server for the
-# current term.
-
-# Each server needs to keep track of its current term, initialized
-# to 0, increasing monotonically with each new election
-
-# Each server needs to know how many other servers are in the
-# cluster to calculate the majority threshold, for determining
-# elections and for the distributed commit
-
-# ----------------------------------------------------------------------
-
-# Raft Consensus:
-
-# Raft is a consensus algorithm for managing a replicated log. The
-# original authors, Ongaro and Ousterhout have developed the Raft
-# algorithm, breaking the consensus problem into 3 mostly independent
-# subproblems. We are going to implement Raft by using this architecture.
-
-# Need to connect each of these Raft servers to a
-# tuplespace/adapter pair. The tuplespace will be our replicated
-# state machine that we will maintain consistently between however
-# many servers are in our cluster
-
-# Need to maintain a log of Entries. Entries are operations that
-# need to be sequenced by the Leader server, and can be marked as
-# committed or not. Once a majority of servers have received the
-# event to be committed, the leader commits the operation to the
-# log, at a specified index, applies the operation to its state
-# machine, and returns the results to the calling client
-
-# Clients need to connect to the Servers in our Raft cluster
-# transparently. The client should not need to know about the
-# underlying structure of the Raft cluster (i.e Leader and
-# Followers). A client connects to one of the servers in the
-# cluster and requests a system change. The server, if a follower,
-# will forward the request directly to the leader server for the
-# current term.
-
-# Each server needs to keep track of its current term, initialized
-# to 0, increasing monotonically with each new election
-
-# Each server needs to know how many other servers are in the
-# cluster to calculate the majority threshold, for determining
-# elections and for the distributed commit
-
-# ----------------------------------------------------------------------
-
-
-# TODO:
-# ----------------------------------------------------------------------
-
-# Finish the election algorithm:
-
-# Right now our election algorithm is capable of electing a leader in
-# a single node architecture. This is simply a proof-of-concept at
-# this stage. Next step we need to scale up to a cluster size of N >=
-# 3, preferably N = 5, and test the election protocol
-
-
-# Implement Leader Heartbeat:
-
-# The leader's heartbeat is a period AppendEntries RPC into all of the
-# Follower servers in the cluster
-
-# ----------------------------------------------------------------------
-
-from enum import Enum
+#!/usr/bin/env python3
 
 import random
-import time
-import threading    # make heartbeat RPC in parallel
-import zmq          # our transport layer
+import sys
+import threading
+import zmq
 
 
-class State(Enum):
-    FOLLOWER = 0
-    CANDIDATE = 1
-    LEADER = 2
-
-
-def random_timeout():
-    return random.randrange(150, 300) / 1000
-
-
-# TODO
-class Vote:
-    """ A vote for a leader election
-
-    """
-    pass
-
-
-# TODO
-class LogEntry:
-    """ An entry in our replicated, distributed log
-
-    LogEntries include the current term number and the command to be
-    replicated to the StateMachine
-
-    """
-    pass
-
-
-# TODO
-class Log:
-    """ The replicated, distributed log
-
-    """
-    pass
-
-
-# TODO
-class Snapshot:
-    """ A complete system state for a range of log entries
-
-    Used in Log Compaction to save space preventing unbounded log growth.
-
-    """
-    pass
-
-
-# TODO
-class StateMachine:
-    """ The state machine that we want to replicate across the cluster
-
-    For our purposes, this will be a Rinda tuplespace with an attached adapter
-    """
-
-
-# TODO
 class Server:
-    """The basic unit of our Raft Server Cluster.
+    """The default server in a Raft cluster
 
-    Each server can be in one of three states:
+    Can be in one of three states at any given time, depending on
+    certain conditions of internal state and of the larger raft
+    cluster.
 
-    1) Follower
-    2) Candidate
-    3) Leader
+    When first initialized, nodes start off in the Follower state, and
+    spawn a thread for handling a randomized election timer. If the
+    Follower node does not receive a heartbeat response before the
+    thread's timer expires, then the node will transistion into the
+    Candidate state and solicit it's peers for votes. If the node
+    receives a majority of affirmative votes from its peers, then it
+    is promoted to Leader and begins sending its own heartbeat.
 
-    The Raft Consensus Algorithm models the servers in the cluster
-    with a master/slave relationship, where at any given time, there
-    is exactly one leader whose log is the source of truth for the
-    entire cluster. In the event that there are more than one leader
-    in the cluster, both will step down, and a new election will begin
-    upon the next election timeout.
+    ----------------------------------------------------------------------
 
-    The leader of the cluster will periodically send AppendEntry RPCs
-    to all of its followers. This serves as the leader's heartbeat.
+    Persistent state on all servers:
+
+    current_term : latest TERM server has seen (initialized to 0,
+    increases monotonically
+
+    voted_for : candidate_id that received VOTE in current term, or None
+
+    log[] : the log entries, each entry contains a COMMAND for the
+    state machine, as well as the term when received by the leader
+    (index starts at 1)
+
+    ----------------------------------------------------------------------
+
+    Volatile state on all servers:
+
+    commit_idx : index of the highest log entry known to be committed
+    (initialized to 0, increases monotonically)
+
+    last_applied : index of highest log entry applied to state machine
+    (initialized to 0, increases monotonically)
+
+    ----------------------------------------------------------------------
+
+    Volatile state on leaders:
+
+    next_idx[] : for each server in the cluster, store the index of
+    the next log entry to send to that particular server (initialized
+    to leader last log index + 1)
+
+    match_idx[] : for each server in the cluster, index of highest log
+    entry known to be replicated on server (initialized to 0,
+    increases monotonically)
 
     """
-    def __init__(self, addr, cluster):
-        # Probably need a zmq context here for our transport
-        self.addr = addr
-        self.cluster = cluster
-        self.state = State.FOLLOWER
-        self.current_term = 0
-        self.votes = set()  # holds a set of cluster members that have
-                            # voted for this node
 
-        # TODO: this should be the tuplespace
-        self.state_machine = None
+    def __init__(self, addr, peers):
+        self.addr = addr  # 127.0.0.1:5555
+        self.peers = peers
+        self.state = "follower"
+
+        # Persistent state on ALL servers
+        # ----------------------------------------------------------------------
+        self.term = 0
+        self.voted_for = None
         self.log = []
-        self.majority = ((len(self.cluster) + 1) // 2) + 1
 
-        # volatile state on all servers
-        self.commit_idx = 0    # index of highest log entry known to be committed
-        self.last_applied = 0  # index of highest log entry applied to state machine
+        # Volatile state on ALL servers
+        # ----------------------------------------------------------------------
+        self.commit_idx = 0
+        self.last_applied = 0
 
-        # volatile state on leaders
-        # TODO, reinitalize these after Election
-        self.next_idx = []   # for each server, index of next log entry to send
-        self.match_idx = []  # for each server, index of highest entry
-                             # known to be replicated
+        self.vote_count = 0
+        self.majority = ((len(peers) + 1) // 2) + 1
         self.timeout_thread = None
+        self.election_time = 0
 
-    # TIMEOUT
-    # ----------------------------------------------------------------------
-    def reset_election_timeout(self):
-        """ Returns some random amount of time after the current time
+        # TRANSPORT
+        # ----------------------------------------------------------------------
+        self.ctx = zmq.Context()
+        self.rep_sock = self.ctx.socket(zmq.REP)  # incoming
 
-        """
-        self.election_time = time.time() + random_timeout()
+        # Setup our REP socket to receive incoming requests
+        self.rep_sock.bind(self.addr)
 
-    def init_timeout(self):
-         """ Initialize a thread for handling election timeouts
+        # LEADER STATE
+        # ----------------------------------------------------------------------
+        self.next_idxs = None
+        self.match_idxs = None
 
-         """
-         self.reset_election_timeout()
+        # bind the response socket to all known peers
+        for peer in self.peers:
+            self.rep_sock.bind(peer)
 
-         if self.timeout_thread and self.timeout_thread.is_alive():
-             return
-         self.timeout_thread = threading.Thread(target=self.handle_timeout)
-         self.timeout_thread.start()
+        self.follower_loop()
 
-
-    def handle_timeout(self):
-        """ The timeout thread handler
-
-        """
-        while self.state != State.LEADER:
-            # see if our time expired
-            d = self.election_time - time.time()
-            self.start_election() if d < 0 else time.sleep(d)
-
-
-    # ELECTION
-    # ----------------------------------------------------------------------
-
-
-    def request_vote(self, vote_for):
-        """ Request votes for the current election Term
+    def randomize_timeout(self):
+        """ Sets server's election time to a random value in [150, 300]
+        milliseconds
 
         """
-        self.votes.add(vote_for)
-        if len(self.votes) >= self.majority:
-            # become the leader
-            self.state = State.LEADER
-            # log the result
-            print(f'LEADER {self.addr} {self.current_term}')
-            # announce your leadership and term
-            self.heartbeat()
+        # self.election_time = random.randrange(150, 300) / 1000
+        self.election_time = random.randrange(150, 300) / 100
 
-
-    def start_election(self):
-        """ Start an election because we timed out
+    def initialize_election_timer(self):
+        """ Spawns an election timer thread, with a randomized timeout
 
         """
-        self.current_term += 1
-        self.state = State.CANDIDATE
-        self.init_timeout()        # timeout before restarting election
-        self.request_vote(self.addr)
+        print('Initializing election timer')
 
+        # timer has not expired yet, so reinitialize it
+        if self.timeout_thread and self.timeout_thread.is_alive():
+            self.timeout_thread.cancel()
 
-    # TODO
-    def heartbeat(self):
-        """ Empty AppendEntries RPC sent to each Follower
+        # timeout is randomized upon each initialization
+        self.randomize_timeout()
 
-        For now, lets send this using REQ-REP ZMQ sockets
+        # spawn a new timeout thread with a new randomized timeout
+        self.timeout_thread = threading.Timer(self.election_time,
+                                              self.handle_election_timeout)
+
+        self.timeout_thread.start()
+
+    def handle_election_timeout(self):
+        """The target function of an election timer thread expiring
+
+        When an election timer expires, the server whose timer expired
+        must transition into the Candidate state and begin an election
+        by requesting votes from its peer group.
+
+        TODO:
+
+        If election timeout elapses without receiving AppendEntries
+        RPC from current leader OR granting vote to candidate: convert
+        to candidate
+
         """
-        pass
 
+        if self.state != "leader" and not self.voted_for:
+            self.state = "candidate"
+            self.term += 1
+            self.vote_count = 0
+            self.initialize_election_timer()
+            self.request_votes()
 
-    # TODO
-    def install_snapshot(self, term, leaderId, lastIncludedIndex,
-                         lastIncludedTermOffset, data, done):
-        """ Install the most recent snapshot to server
+    def request_votes(self):
+        """ Request votes from every node in the current cluster
 
         """
-        pass
+        def request_vote(peer, term):
+            # construct a message to send to the peer
+            message = {
+                "type": "RequestVotes",
+                "addr": self.addr,
+                "term": self.term
+                }
+            print(message)
+            while self.state == "candidate" and self.term == term:
+                # connect to the peer
+                sock = self.ctx.socket(zmq.REQ)
+                print(f'connecting to peer {peer}')
+                sock.connect(peer)
+                sock.send_json(message)
+
+                reply = sock.recv()
+                if reply:
+                    self.heartbeat_reply_handler()
+                print(reply)
+
+        # start a thread of control for each peer in the group
+        for peer in self.peers:
+            threading.Thread(target=request_vote,
+                             args=(peer, self.term)).start()
+
+    def follower_loop(self):
+        # listen for incoming requests from the leader, or timeout
+        while self.state == "follower":
+            self.initialize_election_timer()
+            while self.timeout_thread.is_alive():
+                req = self.rep_sock.recv_json()
+                if req["type"] == "RequestVotes":
+                    self.reply_vote(req)
+
+    def reply_vote(self, req):
+        print(f'RequestVotes from {req["addr"]} with term {req["term"]}')
+
+    # def send_heartbeat(self, follower):
+    #     # check if the new follower have same commit index, else we
+    #     # tell them to update to our log level if self.log:
+    #     # self.update_follower_commitIdx(follower)
+
+    #     message = {"term": self.term, "addr": self.addr}
+    #     while self.state == "leader":
+    #         start = time.time()
+    #         # reply = utils.send(follower, route, message)
+    #         # if reply:
+    #         #     pass
+    #             # self.heartbeat_reply_handler(reply.json()["term"],
+    #                                         # reply.json()["commitIdx"])
+    #         delta = time.time() - start
+    #         # keep the heartbeat constant even if the network speed is varying
+    #         print("heartbeating.......")
+    #         time.sleep((300 - delta) / 1000)
 
 
-# class State:
-#     def __init__(self):
-#         # persistent state: update on stable storage before responding
-#         # to RPC
-#         self.currentTerm = 0
-#         self.votedFor = None
-#         self.log = []   # list of log entries, each entry contains
-#                         # command and term when received by leader
-#                         # (first index is 1)
+if __name__ == "__main__":
+    # python server.py index ip_list
+    if len(sys.argv) == 3:
+        index = int(sys.argv[1])
+        ip_list_file = sys.argv[2]
+        ip_list = []
+        # open ip list file and parse all the ips
+        with open(ip_list_file) as f:
+            for ip in f:
+                ip_list.append(ip.strip())
+        my_ip = ip_list.pop(index)
+        print(f'my_ip: {my_ip}')
 
-#         # volatile state
-#         self.commitIndex = 0
-#         self.lastApplied = 0
+        http, host, port = my_ip.split(':')
+        # initialize node with ip list and its own ip
+        s = Server(my_ip, ip_list)
+    else:
+        print("usage: python raft.py <index> <ip_list_file>")
 
-#         # state for leaders (reiniatilize after election)
-#         self.nextIndex = []       # index of the next log entry to
-#                                   # send to server (init to
-#                                   # leader.log[len(leaderlog)-1]
-
-#         self.matchIndex = []      # index of highest log entry known to
-#                                   # be replicated on server (init to 0,
-#                                   # increase monotonically)
-
-
-# class AppendEntries:
-#     """Invoked by leader to replicate log entries, also used as heartbeat
-
-#     """
-
-#     # TODO: Should this be a method invoked by the leader node, instead of a class?
-#     def __init__(self, term, leaderId, prevLogIndex, prevLogTerm, entries, leaderCommit):
-#         self.term = term
-#         self.leaderId = leaderId
-#         self.prevLogIndex = prevLogIndex
-#         self.prevLogTerm = prevLogTerm
-#         self.entries = entries
-#         self.leaderCommit = leaderCommit
-
-
-# class RequestVote:
-#     """ Invoked by candidates to gather votes
-
-#     """
-
-#     # TODO: Should this be a method invoked by candidate nodes, instead of a class?
-#     def __init__(self, term, candidateId, lastLogIndex, lastLogTerm):
-#         self.term = term
-#         self.candidateId = candidateId
-#         self.lastLogIndex = lastLogIndex
-#         self.lastLogTerm = lastLogTerm
+# if __name__ == "__main__":
+#     print("START")
+#     args = sys.argv[1:]
+#     print(f"Starting raft server ({sys.argv[1]})")
+#     s = Server(sys.argv[1], sys.argv[2])

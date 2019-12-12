@@ -56,6 +56,14 @@
 
   - Thinking about the project in terms of Raft
     - Tuplespaces are *local state machines*
+** transport
+   - for the internal transport (i.e Raft messaging) we will use zmq
+     sockets
+     - 127.0.0.X:5555
+
+   - for communication from a client, we will use HTTP as our transport
+     - localhost:8080
+**
 
 * Raft
   - a consensus algorithm for managing a replicated log.
@@ -342,3 +350,11 @@
   majority of servers have appended the entry to their own logs, the
   leader server will mark the entry as committed, apply its operation
   to the StateMachine, and returns the result to the calling client.
+
+** Transport
+   We are using ZMQ REQ/REP sockets as transport for internal cluster
+   communication. Upon initialization, each server in the raft cluster
+   binds a REP socket, allowing it to respond to incoming requests.
+   Whenever a raft server needs to talk to a peer (e.g soliciting
+   election votes, heartbeating as leader), we spawn a new thread for
+   that communication with an ephemeral REQ socket.
