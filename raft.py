@@ -82,7 +82,7 @@ class Server:
         # TRANSPORT
         # ----------------------------------------------------------------------
         self.ctx = zmq.Context()
-        self.rep_sock = self.ctx.socket(zmq.REP)  # incoming
+        self.rep_sock = self.ctx.socket(zmq.REP)
 
         # Setup our REP socket to receive incoming requests
         self.rep_sock.bind(self.addr)
@@ -92,12 +92,11 @@ class Server:
         self.next_idxs = None
         self.match_idxs = None
 
-        # bind the response socket to all known peers
-        for peer in self.peers:
-            self.rep_sock.bind(peer)
-
+        # enter follower state
         self.follower_loop()
 
+    # UTILITIES
+    # ----------------------------------------------------------------------
     def randomize_timeout(self):
         """ Sets server's election time to a random value in [150, 300]
         milliseconds
@@ -106,6 +105,8 @@ class Server:
         # self.election_time = random.randrange(150, 300) / 1000
         self.election_time = random.randrange(150, 300) / 100
 
+    # ELECTION
+    # ----------------------------------------------------------------------
     def initialize_election_timer(self):
         """ Spawns an election timer thread, with a randomized timeout
 
@@ -139,7 +140,6 @@ class Server:
         to candidate
 
         """
-
         if self.state != "leader" and not self.voted_for:
             self.state = "candidate"
             self.term += 1
@@ -150,32 +150,51 @@ class Server:
     def request_votes(self):
         """ Request votes from every node in the current cluster
 
+        Spawns a thread for each peer in the group, and awaits their response.
         """
         def request_vote(peer, term):
             # construct a message to send to the peer
             message = {
                 "type": "RequestVotes",
                 "addr": self.addr,
-                "term": self.term
+                "term": self.term,
+                "threadId": threading.get_ident(),
+                "activeCount": threading.active_count()
                 }
+
             print(message)
+
             while self.state == "candidate" and self.term == term:
                 # connect to the peer
                 sock = self.ctx.socket(zmq.REQ)
                 print(f'connecting to peer {peer}')
+
+                # TODO: Cleanup this process, if we are unable to
+                # connect the sockets within a span of time, I want to
+                # cleanup the thread
+
+                # LOOK INTO ZMQ POLLER, I think we can continuously
+                # poll the socket for a certain amount of time, and if
+                # we don't get a response within a timeout, we can
+                # cleanup the socket and thread?
                 sock.connect(peer)
                 sock.send_json(message)
-
                 reply = sock.recv()
-                if reply:
-                    self.heartbeat_reply_handler()
-                print(reply)
 
+                if reply:
+                    # Tally the votes
+                    print(f'RECEIVED: {reply}')
+                    # self.heartbeat_reply_handler()
+                break
+
+                print(reply)
         # start a thread of control for each peer in the group
         for peer in self.peers:
             threading.Thread(target=request_vote,
                              args=(peer, self.term)).start()
 
+    # BEHAVIOR
+    # ----------------------------------------------------------------------
     def follower_loop(self):
         # listen for incoming requests from the leader, or timeout
         while self.state == "follower":
@@ -183,10 +202,29 @@ class Server:
             while self.timeout_thread.is_alive():
                 req = self.rep_sock.recv_json()
                 if req["type"] == "RequestVotes":
+                    print(f'RequestVotes from {req["addr"]} with term {req["term"]}')
                     self.reply_vote(req)
+                elif req["type"] == "AppendEntries":
+                    pass
+                elif req["type"] == "InstallSnapshot":
+                    pass
+
+    def candidate_loop(self):
+        print(f"BECAME CANDIDATE - TERM {self.term}")
+        pass
+
+    def leader_loop(self):
+        pass
 
     def reply_vote(self, req):
-        print(f'RequestVotes from {req["addr"]} with term {req["term"]}')
+        # from the REP socket, REPLY back to the requesting thread
+        message = {
+            "type": "RequestVotesResponse",
+            "addr": self.addr,
+            "term": self.term,
+            "voteGranted": False
+        }
+        self.rep_sock.send_json(message)
 
     # def send_heartbeat(self, follower):
     #     # check if the new follower have same commit index, else we
@@ -220,14 +258,7 @@ if __name__ == "__main__":
         my_ip = ip_list.pop(index)
         print(f'my_ip: {my_ip}')
 
-        http, host, port = my_ip.split(':')
         # initialize node with ip list and its own ip
         s = Server(my_ip, ip_list)
     else:
         print("usage: python raft.py <index> <ip_list_file>")
-
-# if __name__ == "__main__":
-#     print("START")
-#     args = sys.argv[1:]
-#     print(f"Starting raft server ({sys.argv[1]})")
-#     s = Server(sys.argv[1], sys.argv[2])
