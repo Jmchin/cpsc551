@@ -10,6 +10,9 @@
 *** TODO Leader Election
 *** TODO Connect Tuplespace/Adapters to act as State Machine
 *** TODO Decide on a Transport protocol for communicating between servers in the cluster
+* PROBLEMS
+  It seems like the zmq REQ/REP model may be problematic, because each
+  sock.connect() call is blocking. Can we switch to an asynchronous model?
 * Ideas
   - use zmq pub-sub sockets
     - client nodes will *subscribe* to some leader node, so that all
