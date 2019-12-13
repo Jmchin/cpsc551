@@ -94,7 +94,7 @@ class Server:
         self.next_idxs = None
         self.match_idxs = None
 
-        # enter follower state
+        # The main event loop
         self.loop()
 
     # UTILITIES
