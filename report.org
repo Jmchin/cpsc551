@@ -361,3 +361,17 @@
    Whenever a raft server needs to talk to a peer (e.g soliciting
    election votes, heartbeating as leader), we spawn a new thread for
    that communication with an ephemeral REQ socket.
+
+*** RPC
+    We have attempted to implement the RPC pattern for internal raft
+    cluster communication. When a server in the cluster transitions
+    into the candidate state, they need to start an election. An
+    election is started by the server node in question changing its
+    state to "candidate", voting for itself, and then requests a vote
+    all the servers in the cluster using the RequestVotes RPC. When
+    making these RPCs, the candidate server spawns a thread that
+    creates an ephemeral REQ socket for calling into the remote node.
+    The remote node will be notified of the election, the address of
+    the candidate, the candidate's proposed term, their staged entries
+    and commit_idx. With this information the node decides whether or
+    not to vote for the candidate.

@@ -86,6 +86,8 @@ class Server:
         self.ctx = zmq.Context()
         self.rep_sock = self.ctx.socket(zmq.REP)
         self.rep_sock.bind(self.addr)
+        self.rep_poll = zmq.Poller()
+        self.rep_poll.register(self.rep_sock, zmq.POLLIN)
 
         # LEADER STATE
         # ----------------------------------------------------------------------
@@ -93,7 +95,7 @@ class Server:
         self.match_idxs = None
 
         # enter follower state
-        self.follower_loop()
+        self.loop()
 
     # UTILITIES
     # ----------------------------------------------------------------------
@@ -163,37 +165,47 @@ class Server:
             print(message)
 
             # initializes outbound comms socket
-            sock = self.ctx.socket(zmq.REQ)
-            # connect socket to peer
-            sock.connect(peer)
-            print(f'connecting to peer {peer}')
+            with self.ctx.socket(zmq.REQ) as sock:
+                # sock = self.ctx.socket(zmq.REQ)
+                sock.setsockopt(zmq.LINGER, 1)
+                # connect socket to peer
+                sock.connect(peer)
+                print(f'connecting to peer: {peer}')
 
-            # TODO: THIS IS BLOCKING US EVEN THOUGH ITS IN A SEPARATE THREAD,
-            # HOW DO I FIX THIS SHIT?
-            # send our message
-            sock.send_json(message)
+                # TODO: THIS IS BLOCKING US EVEN THOUGH ITS IN A SEPARATE THREAD,
+                # HOW DO I FIX THIS SHIT?
+                # send our message
+                try:
+                    sock.send_json(message, flags=zmq.NOBLOCK)
+                except Exception as e:
+                    sock.close()
+                    pass
 
-            # poll this channel for incoming requests (i.e vote responses)
-            poll = zmq.Poller()
-            poll.register(sock, zmq.POLLIN)
+                # poll this channel for incoming requests (i.e vote responses)
+                poll = zmq.Poller()
+                poll.register(sock, zmq.POLLIN)
 
-            events = poll.poll(timeout=1000)  # 1 second
+                events = poll.poll(timeout=1000)  # 1 second
 
-            if events is not None:
-                # process the response
-                resp = sock.recv_json()
-                requester_term = resp["term"]
-                print(f'REQUESTER_TERM: {requester_term}')
-                if resp["voteGranted"]:
-                    self.increment_vote()
-                if requester_term > self.term:
-                    print("RECEIVED NEWER TERM: Becoming FOLLOWER")
-                    self.term = requester_term
-                    self.state = "follower"
-            return
+                if len(events) > 0:
+                    resp = sock.recv_json(flags=zmq.NOBLOCK)
+                    requester_term = resp["term"]
+                    print(f'REQUESTER_TERM: {requester_term}')
+                    if resp["voteGranted"]:
+                        self.increment_vote()
+                    if requester_term > self.term:
+                        print("RECEIVED NEWER TERM: Becoming FOLLOWER")
+                        self.term = requester_term
+                        self.state = "follower"
+                else:
+                    print("Timeout processing auth request!")
 
         for peer in self.peers:
-            request_vote(peer, self.term)
+            t = threading.Thread(target=request_vote,
+                                 args=(peer, self.term)).start()
+            # t = threading.Timer()
+            # self.timeout_thread = threading.Timer(self.election_time,
+            #                                       self.handle_election_timeout)
 
     def reply_vote(self, req):
         # from the REP socket, REPLY back to the requesting thread
@@ -211,7 +223,10 @@ class Server:
             message["voteGranted"] = True
             print(f'VOTING for {req["addr"]} as LEADER for TERM {req["term"]}')
 
-        self.rep_sock.send_json(message)
+        try:
+            self.rep_sock.send_json(message, flags=zmq.NOBLOCK)
+        except Exception as e:
+            pass
 
     def increment_vote(self):
         self.vote_count += 1
@@ -243,33 +258,47 @@ class Server:
 
     # BEHAVIOR
     # ----------------------------------------------------------------------
+    def loop(self):
+        while True:
+            if self.state == "follower":
+                self.follower_loop()
+            elif self.state == "candidate":
+                self.candidate_loop()
+            elif self.state == "leader":
+                self.leader_loop()
+
     def follower_loop(self):
         # listen for incoming requests from the leader, or timeout
         while self.state == "follower":
             self.initialize_election_timer()
             while self.timeout_thread.is_alive():
-                req = self.rep_sock.recv_json()
-                if req["type"] == "RequestVotes":
-                    print(f'RequestVotes from {req["addr"]} with term {req["term"]}')
-                    self.reply_vote(req)
-                elif req["type"] == "AppendEntries":
-                    pass
-                elif req["type"] == "InstallSnapshot":
-                    pass
 
-    # def candidate_loop(self):
-    #     """ The basic event loop for a candidate
+                # need to poll to see if we received anything back yet,
+                # otherwise a cal to sock.recv() will block
+                if self.rep_poll.poll():
+                    req = self.rep_sock.recv_json()
 
-    #     """
-    #     while self.state == "candidate":
-    #         pass
+                    if req["type"] == "RequestVotes":
+                        print(f'RequestVotes from {req["addr"]} with term {req["term"]}')
+                        self.reply_vote(req)
+                    elif req["type"] == "AppendEntries":
+                        pass
+                    elif req["type"] == "InstallSnapshot":
+                        pass
 
-    # def leader_loop(self):
-    #     """ the basic event loop for a leader
+    def candidate_loop(self):
+        """ The basic event loop for a candidate
 
-    #     """
-    #     while self.state == "leader":
-    #         pass
+        """
+        while self.state == "candidate":
+            print(f'In candidate loop!')
+
+    def leader_loop(self):
+        """ the basic event loop for a leader
+
+        """
+        while self.state == "leader":
+            print(f'In candidate loop!')
 
 
     # def send_heartbeat(self, follower):
